@@ -218,43 +218,6 @@ def member_stats(df_members: pd.DataFrame, day_cols) -> pd.DataFrame:
 
     return stats
 
-
-def auto_awards(stats: pd.DataFrame) -> dict:
-    """
-    Crea premios automáticos (sin hardcode de nombres).
-    Devuelve dict miembro -> (premio, descripción corta).
-    """
-    s = stats.set_index("Miembro")
-
-    champ = s["Total"].idxmax()
-    peak = s["Pico"].idxmax()
-
-    # más regular: máximo días activos y mínimo std
-    max_active = s["Días activos"].max()
-    candidates = s[s["Días activos"] == max_active].sort_values("_std", ascending=True)
-    regular = candidates.index[0]
-
-    # asceta: mínimo total
-    asceta = s["Total"].idxmin()
-
-    # ninja: muchos días 0 pero pico alto (intermitente con golpe)
-    tmp = s.copy()
-    tmp["score_ninja"] = tmp["Pico"] * 10 + tmp["Días 0"]
-    ninja = tmp.sort_values("score_ninja", ascending=False).index[0]
-
-    awards = {}
-
-    for m in s.index:
-        awards[m] = ("⭐ Participación estelar", "Apareciste en el Wrapped y eso ya te hace patrimonio cultural.")
-    awards[champ] = ("🏆 Trono del mes", "Lideraste el total mensual. Si esto fuera liga, fuiste campeón con autoridad.")
-    awards[peak] = ("💥 Pico nuclear", "Tienes el día individual más alto del mes. Un evento histórico.")
-    awards[regular] = ("🧘 Metrónomo intestinal", "Máxima constancia (muchos días activos) y baja variabilidad. Regularidad de reloj suizo.")
-    awards[asceta] = ("🌵 Monje del baño", "Eficiencia extrema: el menor total del mes. Minimalismo de élite.")
-    awards[ninja] = ("🥷 Ninja intermitente", "Varios días en silencio… y de repente un pico. Perfecto para el ‘golpe sorpresa’.")
-
-    return awards
-
-
 def interpret_summary(daily: pd.Series, rank_df: pd.DataFrame) -> list[str]:
     """Frases automáticas para explicar lo que se ve en los gráficos del resumen."""
     lines = []
