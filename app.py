@@ -21,7 +21,7 @@ import plotly.express as px
 st.set_page_config(page_title="Poopydiscoop Wrapped", layout="wide")
 
 # Sube esto cada vez que quieras “romper cache” en Streamlit Cloud
-APP_VERSION = "2026-01-02-v2-awards"
+APP_VERSION = "2026-01-02-v3-custom-messages"
 
 
 # -----------------------------
@@ -245,12 +245,12 @@ def auto_awards(stats: pd.DataFrame) -> dict:
     awards = {}
 
     for m in s.index:
-        awards[m] = ("⭐ Participación Estelar", "Apareciste en el Wrapped y eso ya te hace patrimonio cultural.")
-    awards[champ] = ("🏆 Trono del Mes", "Lideraste el total mensual. Si esto fuera liga, fuiste campeón con autoridad.")
-    awards[peak] = ("💥 Pico Nuclear", "Tienes el día individual más alto del mes. Un evento histórico.")
-    awards[regular] = ("🧘 Metrónomo Intestinal", "Máxima constancia (muchos días activos) y baja variabilidad. Regularidad de reloj suizo.")
-    awards[asceta] = ("🌵 Asceta del Baño", "Eficiencia extrema: el menor total del mes. Minimalismo de élite.")
-    awards[ninja] = ("🥷 Ninja Intermitente", "Varios días en silencio… y de repente un pico. Perfecto para el ‘golpe sorpresa’.")
+        awards[m] = ("⭐ Participación estelar", "Apareciste en el Wrapped y eso ya te hace patrimonio cultural.")
+    awards[champ] = ("🏆 Trono del mes", "Lideraste el total mensual. Si esto fuera liga, fuiste campeón con autoridad.")
+    awards[peak] = ("💥 Pico nuclear", "Tienes el día individual más alto del mes. Un evento histórico.")
+    awards[regular] = ("🧘 Metrónomo intestinal", "Máxima constancia (muchos días activos) y baja variabilidad. Regularidad de reloj suizo.")
+    awards[asceta] = ("🌵 Monje del baño", "Eficiencia extrema: el menor total del mes. Minimalismo de élite.")
+    awards[ninja] = ("🥷 Ninja intermitente", "Varios días en silencio… y de repente un pico. Perfecto para el ‘golpe sorpresa’.")
 
     return awards
 
@@ -267,19 +267,40 @@ def interpret_summary(daily: pd.Series, rank_df: pd.DataFrame) -> list[str]:
     top2 = rank_df.iloc[1] if len(rank_df) > 1 else None
 
     lines.append(f"📈 **Curva diaria:** el grupo tuvo su pico el **{peak_day}** con **{peak_val} KGDs** (día de mayor actividad).")
-    lines.append(f"🧊 **Día más calmado:** fue **{min_day}** con **{min_val} KGDs**.")
+    lines.append(f"🧊 **Día más tranqui:** fue **{min_day}** con **{min_val} KGDs**.")
     lines.append(f"🏆 **Ranking:** el líder del mes fue **{top1['Miembro']}** con **{int(top1['Total'])} KGDs**.")
     if top2 is not None:
         lines.append(f"🥈 **Segundo lugar:** **{top2['Miembro']}** con **{int(top2['Total'])} KGDs**. Rivalidad lista para activarse en 1v1.")
     lines.append("🟫 **Heatmap:** colores más intensos = días donde esa persona ‘cargó el equipo’; franjas claras = días en cero.")
     return lines
+# -----------------------------
+# Mensajes personalizados (Premiación)
+# -----------------------------
+CUSTOM_MESSAGES = {
+    "Nico": "El desafiante del trono. 2025 fue su toma de poder con sed de historia y electrolit, un reinado gracias a la gastroenteritis.",
+    "Fredo": "El rey emérito. La corona puede rotar, pero la leyenda queda. Todos sabemos que los Warriors merecían la final del 2016.",
+    "Andy": "La medalla escatológica. Entrando al top 3 con estilo. Un ano de bronce sin hacer escándalo.",
+    "Miguel": "El regulador filosófico. Nunca extremo, siempre presente. Perdiendo podio, pero ganando peso. Glow-down: -13 KGDs este año.",
+    "Didi": "La racha intestilente. Pausas calculadas, regresos con estilo. La mejor serie del 2025.",
+    "Marcos Daniel": "La novia tóxica. Picos inesperados y siempre vuelve.",
+    "Luis": "El maestro del glow-up. Sí me entiende. Glow-up +14 KGDs este año.",
+    "Vagner": "El nuevo motor wotor. Entró con buen promedio y cambió el tablero.",
+    "Carlos": "El resurgido. 2025 fue el ano del regreso. Un resultado a la altura que merece. Glow-up +15 KGDs este año.",
+    "Simón": "El equilibrio rectal. Ni caos ni rigidez, solo flujo (anal). Su gemelo intestinal es Andy.",
+    "Misa": "El métodico descendente. Regularidad tranquila, sin picos innecesarios. Glow-down: -12 KGDs este año.",
+    "Esteban": "El ninja silencioso. Aparece sin avisar y suma sin drama. Plot twist: -15 KGDs en comparación al año pasado.",
+    "Jorge": "El ingeniero Zen. Optimiza energía, minimiza ruido, maximiza calma, estriñe los fines de año.",
+    "Marcos Javier": "El sigiloso. Menos es más, siempre. Misa es su gemelo intestinal.",
+    "Pablo": "El fantasma de las navidades presentes. Poco frecuente, pero inolvidable que cague 2 veces el 3 y 10 de diciembre.",
+    "Tama": "Stan Lee en Marvel. Cameo suave, dejaste dato y cómo es que tu máxima cagada diaria es de 1.",
+}
 
 
 # -----------------------------
 # UI
 # -----------------------------
 st.title("💩 Poopydiscoop Wrapped")
-st.caption("Explora el intestino colectivo (2024 vs 2025). Filtra, compara y juega con las rivalidades.")
+st.caption("Explora el intestino colectivo durante diciembre (2024 y 2025). Filtra, compara y juega con las rivalidades.")
 
 xlsx_path = "Poopydiscoop.xlsx"
 xls = pd.ExcelFile(xlsx_path)
@@ -379,6 +400,12 @@ with tabs[1]:
     a5.metric("Pico (día)", f"{int(r['Pico'])} ({r['Pico (día)']})")
 
     st.success(f"**{award_title}** — {award_desc}")
+    custom_msg = CUSTOM_MESSAGES.get(chosen)
+if custom_msg:
+    st.info(custom_msg)
+else:
+    st.info("✨ Mensaje personalizado pendiente: este personaje merece lore oficial.")
+
 
     # Mini gráfico individual + lectura
     s = series_for_person(members, day_cols, chosen)
