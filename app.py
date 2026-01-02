@@ -223,8 +223,8 @@ with tabs[0]:
 with tabs[1]:
     st.subheader("⚔️ Modo Rivalidad 1 vs 1")
     colA, colB = st.columns(2)
-    p1 = colA.selectbox("Jugador A", all_members, index=0, key="p1")
-    p2 = colB.selectbox("Jugador B", all_members, index=1 if len(all_members) > 1 else 0, key="p2")
+    p1 = colA.selectbox("KGDor A", all_members, index=0, key="p1")
+    p2 = colB.selectbox("KGDor B", all_members, index=1 if len(all_members) > 1 else 0, key="p2")
 
     if p1 == p2:
         st.warning("Elige dos personas distintas para la rivalidad.")
@@ -268,7 +268,7 @@ with tabs[1]:
 # TAB 3: NÉMESIS / GEMELO
 # =========================
 with tabs[2]:
-    st.subheader("🧠 Encuentra tu Gemelo o tu Némesis intestinal")
+    st.subheader("🧠 Encuentra tu gemelo o tu némesis intestinal")
     target = st.selectbox("Elige participante", all_members, index=0, key="target")
 
     most_sim, most_opp, corr_series = corr_top(members, day_cols, target)
@@ -302,8 +302,8 @@ with tabs[2]:
 # TAB 4: DRAFT (Equipos)
 # =========================
 with tabs[3]:
-    st.subheader("🎮 Fantasy Poop League — Equipos 3 vs 3")
-    st.caption("Arma dos equipos (tríos) cagados. Ideal para apostar un cacique")
+    st.subheader("🎮 Fantasy Poop League | Equipos 3 vs 3")
+    st.caption("Arma dos equipos (tríos) cagados. Ideal para apostar un cacique.")
 
     left, right = st.columns(2)
     team_a = left.multiselect("Equipo A (elige 3)", all_members, default=all_members[:3], key="team_a")
