@@ -223,8 +223,8 @@ with tabs[0]:
 with tabs[1]:
     st.subheader("⚔️ Modo Rivalidad 1 vs 1")
     colA, colB = st.columns(2)
-    p1 = colA.selectbox("KGDor A", all_members, index=0, key="p1")
-    p2 = colB.selectbox("KGDor B", all_members, index=1 if len(all_members) > 1 else 0, key="p2")
+    p1 = colA.selectbox("Jugador A", all_members, index=0, key="p1")
+    p2 = colB.selectbox("Jugador B", all_members, index=1 if len(all_members) > 1 else 0, key="p2")
 
     if p1 == p2:
         st.warning("Elige dos personas distintas para la rivalidad.")
