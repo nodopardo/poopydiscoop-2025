@@ -1,9 +1,14 @@
 # app.py
 # Poopydiscoop Wrapped — Dashboard interactivo (2024 vs 2025)
-# Incluye: KPIs, curva diaria, ranking, heatmap, Rivalidad 1v1,
-# "Némesis/Gemelo intestinal" por correlación, y Draft de Equipos (3v3).
+# Incluye:
+# - Resumen: KPIs, curva diaria, ranking, heatmap
+# - Rivalidad 1v1: cara a cara + carrera acumulada + días ganados + paliza + momentum semanal
+# - Némesis/Gemelo: correlación de patrones diarios
+# - Draft 3v3: equipos y comparación
+# - Fantasy Poop League: mini-liga para apostar (draft de rosters, tabla, jornadas)
 
 import re
+import itertools
 import pandas as pd
 import streamlit as st
 import plotly.express as px
@@ -32,17 +37,12 @@ def _fmt_day_label(col) -> str:
 
 
 def _is_day_col(colname) -> bool:
-    """
-    Considera 'día' si:
-    - el nombre puede parsearse como fecha (Excel suele traer datetimes)
-    - o el nombre parece '1-Dec', '31 Dec', etc.
-    """
+    """Día si el encabezado parsea como fecha o luce como '1-Dec'."""
     try:
         pd.to_datetime(colname)
         return True
     except Exception:
         pass
-
     s = str(colname).strip()
     return bool(re.match(r"^\s*\d{1,2}\s*[-/ ]\s*[A-Za-z]{3,}\s*$", s))
 
@@ -64,11 +64,11 @@ def load_sheet(xlsx_path: str, sheet_name: str):
     df = df.rename(columns={member_col: "Miembro"})
     df["Miembro"] = df["Miembro"].astype(str).str.strip()
 
-    # Detectar fila Total si existe
+    # Detectar fila Total si existe y excluirla
     total_mask = df["Miembro"].str.lower().eq("total")
     members = df[~total_mask].copy()
 
-    # Excluir columnas que NO son días (evita que entren "Total de Cagadas", "Cagadas diarias", etc.)
+    # Evitar que entren columnas de totales/promedios al registro diario
     banned_keywords = {
         "total", "promedio", "average", "kpd", "kgds",
         "cagadasdiarias", "cagadas diarias",
@@ -123,7 +123,6 @@ def biggest_blowout(s1: pd.Series, s2: pd.Series):
 
 def corr_top(df_members: pd.DataFrame, day_cols, target: str):
     mat = df_members.set_index("Miembro")[day_cols].apply(pd.to_numeric, errors="coerce").fillna(0)
-    # Correlación del patrón diario
     corr = mat.T.corr()
     s = corr[target].drop(index=target).sort_values(ascending=False)
     most_similar = s.head(1)
@@ -132,10 +131,10 @@ def corr_top(df_members: pd.DataFrame, day_cols, target: str):
 
 
 def weekly_totals(s: pd.Series) -> pd.Series:
-    # semanas: 1-7, 8-14, 15-21, 22-28, 29-31
+    # semanas: 1-7, 8-14, 15-21, 22-28, final 29-31
     idx = list(range(1, len(s) + 1))
     buckets = []
-    for i, day in enumerate(idx, start=1):
+    for day in idx:
         if day <= 7:
             buckets.append("Semana 1 (1-7)")
         elif day <= 14:
@@ -150,6 +149,40 @@ def weekly_totals(s: pd.Series) -> pd.Series:
     return df.groupby("bucket")["val"].sum().reindex(
         ["Semana 1 (1-7)", "Semana 2 (8-14)", "Semana 3 (15-21)", "Semana 4 (22-28)", "Final (29-31)"]
     )
+
+
+def totals_by_period(df_members: pd.DataFrame, day_cols, roster: list[str]) -> pd.Series:
+    """Suma del roster por periodos (5 periodos: 4 semanas + final)."""
+    if not roster:
+        return pd.Series([0, 0, 0, 0, 0], index=[
+            "Semana 1 (1-7)", "Semana 2 (8-14)", "Semana 3 (15-21)", "Semana 4 (22-28)", "Final (29-31)"
+        ])
+    # Serie diaria del equipo
+    team_daily = df_members[df_members["Miembro"].isin(roster)][day_cols].sum(axis=0)
+    labels = [_fmt_day_label(c) for c in day_cols]
+    s = pd.Series(team_daily.values, index=labels).astype(float)
+    return weekly_totals(s)
+
+
+def make_schedule(managers: list[str], periods: list[str]) -> pd.DataFrame:
+    """
+    Crea un calendario simple de jornadas:
+    - Para cada periodo, empareja secuencialmente (Manager1 vs Manager2, etc.)
+    - Si hay impar, uno queda en BYE.
+    """
+    rows = []
+    for p in periods:
+        ms = managers[:]
+        # Emparejamiento determinístico (bonito y simple)
+        pairs = list(zip(ms[0::2], ms[1::2]))
+        used = set()
+        for a, b in pairs:
+            rows.append({"Periodo": p, "Local": a, "Visitante": b})
+            used.add(a); used.add(b)
+        if len(ms) % 2 == 1:
+            bye = [m for m in ms if m not in used][0]
+            rows.append({"Periodo": p, "Local": bye, "Visitante": "BYE"})
+    return pd.DataFrame(rows)
 
 
 # -----------------------------
@@ -170,10 +203,15 @@ if len(day_cols) == 0:
 
 # Normalizar numéricos
 members[day_cols] = members[day_cols].apply(pd.to_numeric, errors="coerce").fillna(0)
-
 all_members = members["Miembro"].tolist()
 
-tabs = st.tabs(["📊 Resumen", "⚔️ Rivalidad 1 vs 1", "🧠 Némesis / Gemelo", "🎮 Draft (Equipos)"])
+tabs = st.tabs([
+    "📊 Resumen",
+    "⚔️ Rivalidad 1 vs 1",
+    "🧠 Némesis / Gemelo",
+    "🎮 Draft (3 vs 3)",
+    "🏈 Fantasy Poop League"
+])
 
 
 # =========================
@@ -254,7 +292,7 @@ with tabs[1]:
         fig2 = px.line(df_race, x="Día", y="Acumulado", color="Miembro")
         st.plotly_chart(fig2, use_container_width=True)
 
-        st.markdown("### 📦 Totales por semana (para ver el “momentum”)")
+        st.markdown("### 📦 Totales por semana (momentum)")
         w_s1 = weekly_totals(s1)
         w_s2 = weekly_totals(s2)
         dfw = pd.DataFrame({"Bucket": w_s1.index, p1: w_s1.values, p2: w_s2.values}).melt(
@@ -299,11 +337,11 @@ with tabs[2]:
 
 
 # =========================
-# TAB 4: DRAFT (Equipos)
+# TAB 4: DRAFT 3v3
 # =========================
 with tabs[3]:
-    st.subheader("🎮 Fantasy Poop League | Equipos 3 vs 3")
-    st.caption("Arma dos equipos (tríos) cagados. Ideal para apostar un cacique.")
+    st.subheader("🎮 Draft Mode — Equipos 3 vs 3")
+    st.caption("Arma dos equipos (tríos). Ideal para apostar algo simple (papel higiénico, café, etc.).")
 
     left, right = st.columns(2)
     team_a = left.multiselect("Equipo A (elige 3)", all_members, default=all_members[:3], key="team_a")
@@ -341,6 +379,121 @@ with tabs[3]:
         fig2 = px.line(df_race, x="Día", y="Acumulado", color="Miembro")
         st.plotly_chart(fig2, use_container_width=True)
 
+
+# =========================
+# TAB 5: FANTASY POOP LEAGUE
+# =========================
+with tabs[4]:
+    st.subheader("🏈 Fantasy Poop League (para apostar)")
+    st.caption("Cada manager draftea un roster. Se juegan 5 jornadas: 4 semanas + final. Ganadores por periodo y tabla global.")
+
+    # Config league
+    n = st.slider("Número de managers", min_value=2, max_value=6, value=4, step=1)
+    roster_size = st.slider("Tamaño del roster por manager", min_value=2, max_value=4, value=3, step=1)
+
+    st.markdown("### 👤 Nombres de managers")
+    mgr_cols = st.columns(n)
+    managers = []
+    for i in range(n):
+        managers.append(mgr_cols[i].text_input(f"Manager {i+1}", value=f"Manager {i+1}", key=f"mgr_{i}").strip() or f"Manager {i+1}")
+
+    st.markdown("### 🧩 Draft del roster")
+    st.caption("Regla recomendada: **sin jugadores repetidos**. El app te avisa si hay duplicados.")
+
+    # Draft rosters
+    rosters = {}
+    used = []
+    for i, m in enumerate(managers):
+        with st.expander(f"📌 {m} — elige {roster_size} jugadores", expanded=(i == 0)):
+            picks = st.multiselect(
+                f"Roster de {m}",
+                options=all_members,
+                default=all_members[i*roster_size:(i+1)*roster_size] if (i+1)*roster_size <= len(all_members) else [],
+                key=f"roster_{i}"
+            )
+            rosters[m] = picks
+            used.extend(picks)
+
+    # Validación de duplicados
+    dupes = sorted({x for x in used if used.count(x) > 1})
+    if dupes:
+        st.error(f"🚫 Jugadores repetidos en la liga: {', '.join(dupes)}. "
+                 f"Para que sea Fantasy de verdad, ajusten los rosters para que sean únicos.")
+
+    periods = ["Semana 1 (1-7)", "Semana 2 (8-14)", "Semana 3 (15-21)", "Semana 4 (22-28)", "Final (29-31)"]
+
+    # Puntos por periodo + total
+    points = {}
+    for m, roster in rosters.items():
+        per = totals_by_period(members, day_cols, roster)
+        points[m] = per
+
+    df_points = pd.DataFrame(points).T  # managers x periodos
+    df_points["Total"] = df_points.sum(axis=1)
+
+    st.markdown("### 🧾 Tabla Fantasy (puntos por periodo)")
+    st.dataframe(
+        df_points.sort_values("Total", ascending=False),
+        use_container_width=True
+    )
+
+    st.markdown("### 🏆 Leaderboard visual")
+    df_lb = df_points["Total"].sort_values(ascending=False).reset_index()
+    df_lb.columns = ["Manager", "Total"]
+    fig_lb = px.bar(df_lb, x="Manager", y="Total")
+    st.plotly_chart(fig_lb, use_container_width=True)
+
+    # Calendario de jornadas y resultados H2H
+    st.markdown("### 📅 Jornadas (Head-to-Head)")
+    schedule = make_schedule(managers, periods)
+
+    rows = []
+    for _, r in schedule.iterrows():
+        period = r["Periodo"]
+        a = r["Local"]
+        b = r["Visitante"]
+        if b == "BYE":
+            rows.append({"Periodo": period, "Local": a, "Visitante": "BYE", "Puntos Local": df_points.loc[a, period], "Puntos Visitante": 0, "Ganador": a})
+        else:
+            pa = df_points.loc[a, period]
+            pb = df_points.loc[b, period]
+            if pa > pb:
+                win = a
+            elif pb > pa:
+                win = b
+            else:
+                win = "Empate"
+            rows.append({"Periodo": period, "Local": a, "Visitante": b, "Puntos Local": pa, "Puntos Visitante": pb, "Ganador": win})
+
+    df_h2h = pd.DataFrame(rows)
+    st.dataframe(df_h2h, use_container_width=True, hide_index=True)
+
+    # Tabla de victorias H2H
+    st.markdown("### ✅ Tabla de victorias (Head-to-Head)")
+    wins = {m: 0 for m in managers}
+    ties = {m: 0 for m in managers}
+    for _, r in df_h2h.iterrows():
+        if r["Visitante"] == "BYE":
+            wins[r["Ganador"]] += 1
+        elif r["Ganador"] == "Empate":
+            ties[r["Local"]] += 1
+            ties[r["Visitante"]] += 1
+        else:
+            wins[r["Ganador"]] += 1
+
+    df_w = pd.DataFrame({
+        "Manager": managers,
+        "Victorias": [wins[m] for m in managers],
+        "Empates": [ties[m] for m in managers],
+        "Total Fantasy": [df_points.loc[m, "Total"] for m in managers]
+    }).sort_values(["Victorias", "Total Fantasy"], ascending=False)
+
+    st.dataframe(df_w, use_container_width=True, hide_index=True)
+
+    st.markdown("### 💸 Ideas de apuesta (sanas y simples)")
+    st.write("- El último en la tabla H2H compra papel higiénico premium para el grupo.")
+    st.write("- El campeón global elige la canción del after o el lugar del próximo parche.")
+    st.write("- Si hay empate global: duelo final 1v1 usando el **modo rivalidad** entre los mejores roster-pickers.")
 
 st.caption(
     "Nota: El dashboard detecta automáticamente las 31 columnas diarias y calcula totales/promedios desde ahí. "
