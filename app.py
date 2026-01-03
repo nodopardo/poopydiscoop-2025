@@ -400,7 +400,8 @@ with tabs[1]:
     a5.metric("Pico (día)", f"{int(r['Pico'])} ({r['Pico (día)']})")
 
     st.success(f"**{award_title}** — {award_desc}")
-    custom_msg = CUSTOM_MESSAGES.get(chosen)
+
+custom_msg = CUSTOM_MESSAGES.get(chosen)
 if custom_msg:
     st.info(custom_msg)
 else:
