@@ -302,7 +302,7 @@ with tabs[0]:
     fig2 = px.imshow(heat, aspect="auto", labels=dict(x="Día", y="Miembro", color="KGDs"))
     st.plotly_chart(fig2, use_container_width=True)
 
-    with st.expander("🗣️ Interpretación automática de los gráficos (modo narrador)", expanded=True):
+    with st.expander("🗣️ Interpretación dummy de los gráficos", expanded=True):
         for line in interpret_summary(daily, rank):
             st.markdown(f"- {line}")
 
