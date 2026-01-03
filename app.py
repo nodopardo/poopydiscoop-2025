@@ -2,11 +2,11 @@
 # Poopydiscoop Wrapped — Dashboard interactivo (2024 vs 2025)
 # Incluye:
 # - Resumen: KPIs, curva diaria, ranking, heatmap + interpretación automática
-# - Rivalidad 1v1: cara a cara + carrera acumulada + días ganados + paliza + momentum semanal
-# - Némesis/Gemelo: correlación de patrones diarios
-# - Draft 3v3: equipos y comparación
-# - Fantasy Poop League: mini-liga para apostar (draft de rosters, tabla, jornadas)
-# - 🏅 Premiación: tabla individual (Total, KPD, Días activos, Días 0, Pico (día)) + premios + fichas por persona
+# - Rivalidad 1v1
+# - Némesis/Gemelo
+# - Draft 3v3
+# - Fantasy Poop League
+# - 🏅 Premiación: SOLO mensajes personalizados + ficha con stats
 
 import re
 import pandas as pd
@@ -20,8 +20,7 @@ import plotly.express as px
 # -----------------------------
 st.set_page_config(page_title="Poopydiscoop Wrapped", layout="wide")
 
-# Sube esto cada vez que quieras “romper cache” en Streamlit Cloud
-APP_VERSION = "2026-01-02-v3-custom-messages"
+APP_VERSION = "2026-01-02-v4-custom-only-fixed"
 
 
 # -----------------------------
@@ -32,7 +31,6 @@ def _norm(s: str) -> str:
 
 
 def _fmt_day_label(col) -> str:
-    """Convierte columnas fecha a etiquetas tipo '1-Dec'. Si ya es texto, lo deja."""
     try:
         dt = pd.to_datetime(col)
         return dt.strftime("%-d-%b")  # Linux OK
@@ -41,7 +39,6 @@ def _fmt_day_label(col) -> str:
 
 
 def _is_day_col(colname) -> bool:
-    """Día si el encabezado parsea como fecha o luce como '1-Dec'."""
     try:
         pd.to_datetime(colname)
         return True
@@ -53,13 +50,9 @@ def _is_day_col(colname) -> bool:
 
 @st.cache_data
 def load_sheet(xlsx_path: str, sheet_name: str, version: str):
-    """
-    version: parámetro para invalidar cache cuando cambias código.
-    """
     df = pd.read_excel(xlsx_path, sheet_name=sheet_name)
     df.columns = [str(c).strip() for c in df.columns]
 
-    # Columna miembro robusta
     member_col = None
     for c in df.columns:
         if _norm(c) in {"miembro", "member", "nombre", "participante"}:
@@ -74,11 +67,9 @@ def load_sheet(xlsx_path: str, sheet_name: str, version: str):
 
     df["Miembro"] = df["Miembro"].astype(str).str.strip()
 
-    # Excluir fila Total
     total_mask = df["Miembro"].str.lower().eq("total")
     members = df[~total_mask].copy()
 
-    # Evitar columnas de totales/promedios
     banned_keywords = {
         "total", "promedio", "average", "kpd", "kgds",
         "cagadasdiarias", "cagadas diarias",
@@ -101,30 +92,22 @@ def load_sheet(xlsx_path: str, sheet_name: str, version: str):
     except Exception:
         pass
 
-    # Numéricos
     members[day_cols] = members[day_cols].apply(pd.to_numeric, errors="coerce").fillna(0)
-
     return members, day_cols
 
 
 def series_for_person(df_members: pd.DataFrame, day_cols, person: str) -> pd.Series:
     row = df_members[df_members["Miembro"] == person].iloc[0]
-    s = pd.Series(row[day_cols].values, index=[_fmt_day_label(c) for c in day_cols]).astype(float)
-    return s
+    return pd.Series(row[day_cols].values, index=[_fmt_day_label(c) for c in day_cols]).astype(float)
 
 
 def cumulative_race_df(s1: pd.Series, s2: pd.Series, p1: str, p2: str) -> pd.DataFrame:
-    c1 = s1.cumsum()
-    c2 = s2.cumsum()
-    df = pd.DataFrame({"Día": s1.index, p1: c1.values, p2: c2.values})
+    df = pd.DataFrame({"Día": s1.index, p1: s1.cumsum().values, p2: s2.cumsum().values})
     return df.melt(id_vars="Día", var_name="Miembro", value_name="Acumulado")
 
 
 def days_won(s1: pd.Series, s2: pd.Series):
-    w1 = int((s1 > s2).sum())
-    w2 = int((s2 > s1).sum())
-    ties = int((s1 == s2).sum())
-    return w1, w2, ties
+    return int((s1 > s2).sum()), int((s2 > s1).sum()), int((s1 == s2).sum())
 
 
 def biggest_blowout(s1: pd.Series, s2: pd.Series):
@@ -137,9 +120,7 @@ def corr_top(df_members: pd.DataFrame, day_cols, target: str):
     mat = df_members.set_index("Miembro")[day_cols].apply(pd.to_numeric, errors="coerce").fillna(0)
     corr = mat.T.corr()
     s = corr[target].drop(index=target).sort_values(ascending=False)
-    most_similar = s.head(1)
-    most_opposite = s.tail(1)
-    return most_similar, most_opposite, s
+    return s.head(1), s.tail(1), s
 
 
 def weekly_totals(s: pd.Series) -> pd.Series:
@@ -168,8 +149,7 @@ def totals_by_period(df_members: pd.DataFrame, day_cols, roster: list[str]) -> p
             "Semana 1 (1-7)", "Semana 2 (8-14)", "Semana 3 (15-21)", "Semana 4 (22-28)", "Final (29-31)"
         ])
     team_daily = df_members[df_members["Miembro"].isin(roster)][day_cols].sum(axis=0)
-    labels = [_fmt_day_label(c) for c in day_cols]
-    s = pd.Series(team_daily.values, index=labels).astype(float)
+    s = pd.Series(team_daily.values, index=[_fmt_day_label(c) for c in day_cols]).astype(float)
     return weekly_totals(s)
 
 
@@ -189,21 +169,19 @@ def make_schedule(managers: list[str], periods: list[str]) -> pd.DataFrame:
 
 
 def member_stats(df_members: pd.DataFrame, day_cols) -> pd.DataFrame:
-    """Tabla base para premiación individual."""
     totals = df_members[day_cols].sum(axis=1)
     kpd = totals / len(day_cols)
     active = (df_members[day_cols] > 0).sum(axis=1)
     zeros = len(day_cols) - active
     peak_val = df_members[day_cols].max(axis=1)
 
-    # día pico
     peak_day = []
     for _, row in df_members.iterrows():
         vals = row[day_cols].values.astype(float)
         i = int(np.argmax(vals))
         peak_day.append(_fmt_day_label(day_cols[i]))
 
-    stats = pd.DataFrame({
+    return pd.DataFrame({
         "Miembro": df_members["Miembro"].values,
         "Total": totals.round(0).astype(int),
         "KPD": kpd.round(2),
@@ -213,86 +191,46 @@ def member_stats(df_members: pd.DataFrame, day_cols) -> pd.DataFrame:
         "Pico (día)": peak_day,
     })
 
-    # Variabilidad (para escoger “más regular”)
-    stats["_std"] = df_members[day_cols].std(axis=1).fillna(0)
-
-    return stats
-
-
-def auto_awards(stats: pd.DataFrame) -> dict:
-    """
-    Crea premios automáticos (sin hardcode de nombres).
-    Devuelve dict miembro -> (premio, descripción corta).
-    """
-    s = stats.set_index("Miembro")
-
-    champ = s["Total"].idxmax()
-    peak = s["Pico"].idxmax()
-
-    # más regular: máximo días activos y mínimo std
-    max_active = s["Días activos"].max()
-    candidates = s[s["Días activos"] == max_active].sort_values("_std", ascending=True)
-    regular = candidates.index[0]
-
-    # asceta: mínimo total
-    asceta = s["Total"].idxmin()
-
-    # ninja: muchos días 0 pero pico alto (intermitente con golpe)
-    tmp = s.copy()
-    tmp["score_ninja"] = tmp["Pico"] * 10 + tmp["Días 0"]
-    ninja = tmp.sort_values("score_ninja", ascending=False).index[0]
-
-    awards = {}
-
-    for m in s.index:
-        awards[m] = ("⭐ Participación estelar", "Apareciste en el Wrapped y eso ya te hace patrimonio cultural.")
-    awards[champ] = ("🏆 Trono del mes", "Lideraste el total mensual. Si esto fuera liga, fuiste campeón con autoridad.")
-    awards[peak] = ("💥 Pico nuclear", "Tienes el día individual más alto del mes. Un evento histórico.")
-    awards[regular] = ("🧘 Metrónomo intestinal", "Máxima constancia (muchos días activos) y baja variabilidad. Regularidad de reloj suizo.")
-    awards[asceta] = ("🌵 Monje del baño", "Eficiencia extrema: el menor total del mes. Minimalismo de élite.")
-    awards[ninja] = ("🥷 Ninja intermitente", "Varios días en silencio… y de repente un pico. Perfecto para el ‘golpe sorpresa’.")
-
-    return awards
-
 
 def interpret_summary(daily: pd.Series, rank_df: pd.DataFrame) -> list[str]:
-    """Frases automáticas para explicar lo que se ve en los gráficos del resumen."""
     lines = []
     peak_day = daily.idxmax()
     peak_val = int(daily.max())
     min_day = daily.idxmin()
     min_val = int(daily.min())
-
     top1 = rank_df.iloc[0]
     top2 = rank_df.iloc[1] if len(rank_df) > 1 else None
 
-    lines.append(f"📈 **Curva diaria:** el grupo tuvo su pico el **{peak_day}** con **{peak_val} KGDs** (día de mayor actividad).")
-    lines.append(f"🧊 **Día más tranqui:** fue **{min_day}** con **{min_val} KGDs**.")
-    lines.append(f"🏆 **Ranking:** el líder del mes fue **{top1['Miembro']}** con **{int(top1['Total'])} KGDs**.")
+    lines.append(f"📈 **Curva diaria:** pico el **{peak_day}** con **{peak_val} KGDs**.")
+    lines.append(f"🧊 **Día más tranqui:** **{min_day}** con **{min_val} KGDs**.")
+    lines.append(f"🏆 **Ranking:** líder **{top1['Miembro']}** con **{int(top1['Total'])} KGDs**.")
     if top2 is not None:
-        lines.append(f"🥈 **Segundo lugar:** **{top2['Miembro']}** con **{int(top2['Total'])} KGDs**. Rivalidad lista para activarse en 1v1.")
-    lines.append("🟫 **Heatmap:** colores más intensos = días donde esa persona ‘cargó el equipo’; franjas claras = días en cero.")
+        lines.append(f"🥈 Segundo: **{top2['Miembro']}** con **{int(top2['Total'])} KGDs**.")
+    lines.append("🟫 **Heatmap:** más oscuro = más actividad; más claro = días en cero.")
     return lines
+
+
 # -----------------------------
-# Mensajes personalizados (Premiación)
+# Mensajes personalizados (Premiación) — SOLO ESTOS
+# emoji + premio + mensaje
 # -----------------------------
-CUSTOM_MESSAGES = {
-    "Nico": "El desafiante del trono. 2025 fue su toma de poder con sed de historia y electrolit, un reinado gracias a la gastroenteritis.",
-    "Fredo": "El rey emérito. La corona puede rotar, pero la leyenda queda. Todos sabemos que los Warriors merecían la final del 2016.",
-    "Andy": "La medalla escatológica. Entrando al top 3 con estilo. Un ano de bronce sin hacer escándalo.",
-    "Miguel": "El regulador filosófico. Nunca extremo, siempre presente. Perdiendo podio, pero ganando peso. Glow-down: -13 KGDs este año.",
-    "Didi": "La racha intestilente. Pausas calculadas, regresos con estilo. La mejor serie del 2025.",
-    "Marcos Daniel": "La novia tóxica. Picos inesperados y siempre vuelve.",
-    "Luis": "El maestro del glow-up. Sí me entiende. Glow-up +14 KGDs este año.",
-    "Vagner": "El nuevo motor wotor. Entró con buen promedio y cambió el tablero.",
-    "Carlos": "El resurgido. 2025 fue el ano del regreso. Un resultado a la altura que merece. Glow-up +15 KGDs este año.",
-    "Simón": "El equilibrio rectal. Ni caos ni rigidez, solo flujo (anal). Su gemelo intestinal es Andy.",
-    "Misa": "El métodico descendente. Regularidad tranquila, sin picos innecesarios. Glow-down: -12 KGDs este año.",
-    "Esteban": "El ninja silencioso. Aparece sin avisar y suma sin drama. Plot twist: -15 KGDs en comparación al año pasado.",
-    "Jorge": "El ingeniero Zen. Optimiza energía, minimiza ruido, maximiza calma, estriñe los fines de año.",
-    "Marcos Javier": "El sigiloso. Menos es más, siempre. Misa es su gemelo intestinal.",
-    "Pablo": "El fantasma de las navidades presentes. Poco frecuente, pero inolvidable que cague 2 veces el 3 y 10 de diciembre.",
-    "Tama": "Stan Lee en Marvel. Cameo suave, dejaste dato y cómo es que tu máxima cagada diaria es de 1.",
+CUSTOM_AWARDS = {
+    "Nico": ("👑", "El desafiante del trono", "2025 fue su toma de poder con sed de historia y electrolit, un reinado gracias a la gastroenteritis."),
+    "Fredo": ("🏛️", "El rey emérito", "La corona puede rotar, pero la leyenda queda. Todos sabemos que los Warriors merecían la final del 2016."),
+    "Andy": ("🥉", "La medalla escatológica", "Entrando al top 3 con estilo. Un ano de bronce sin hacer escándalo."),
+    "Miguel": ("🧠", "El regulador filosófico", "Nunca extremo, siempre presente. Perdiendo podio, pero ganando peso. Glow-down: -13 KGDs este año."),
+    "Didi": ("📺", "La racha intestilente", "Pausas calculadas, regresos con estilo. La mejor serie del 2025."),
+    "Marcos Daniel": ("💔", "La novia tóxica", "Picos inesperados y siempre vuelve."),
+    "Luis": ("📈", "El maestro del glow-up", "Sí me entiende. Glow-up +14 KGDs este año."),
+    "Vagner": ("🛞", "El nuevo motor wotor", "Entró con buen promedio y cambió el tablero."),
+    "Carlos": ("🔥", "El resurgido", "2025 fue el ano del regreso. Un resultado a la altura que merece. Glow-up +15 KGDs este año."),
+    "Simón": ("⚖️", "El equilibrio rectal", "Ni caos ni rigidez, solo flujo (anal). Su gemelo intestinal es Andy."),
+    "Misa": ("📉", "El metódico descendente", "Regularidad tranquila, sin picos innecesarios. Glow-down: -12 KGDs este año."),
+    "Esteban": ("🥷", "El ninja silencioso", "Aparece sin avisar y suma sin drama. Plot twist: -15 KGDs en comparación al año pasado."),
+    "Jorge": ("🧘", "El ingeniero Zen", "Optimiza energía, minimiza ruido, maximiza calma, estriñe los fines de año."),
+    "Marcos Javier": ("🤫", "El sigiloso", "Menos es más, siempre. Misa es su gemelo intestinal."),
+    "Pablo": ("👻", "El fantasma de las navidades presentes", "Poco frecuente, pero inolvidable que cague 2 veces el 3 y 10 de diciembre."),
+    "Tama": ("🎬", "Stan Lee en Marvel", "Cameo suave: dejaste dato. Y cómo es que tu máxima cagada diaria es de 1."),
 }
 
 
@@ -370,28 +308,43 @@ with tabs[0]:
 
 
 # =========================
-# TAB 2: PREMIACIÓN
+# TAB 2: PREMIACIÓN (SOLO PERSONALIZADO)
 # =========================
 with tabs[1]:
-    st.subheader("🏅 Premiación individual")
-    st.caption("Datos completos por participante + premio automático (y fichas individuales).")
+    st.subheader("🏅 Premiación individual (solo canon oficial)")
+    st.caption("Aquí no hay IA inventando: solo tus premios + tus textos, con datos reales al lado.")
 
     stats = member_stats(members, day_cols)
-    awards_map = auto_awards(stats)
 
-    # Tabla principal
-    table = stats[["Miembro", "Total", "KPD", "Días activos", "Días 0", "Pico", "Pico (día)"]].copy()
-    table = table.sort_values(["Total", "Pico"], ascending=False)
+    # Tabla completa + columna Premio (si existe)
+    rows = []
+    for _, row in stats.iterrows():
+        name = row["Miembro"]
+        if name in CUSTOM_AWARDS:
+            emoji, title, _msg = CUSTOM_AWARDS[name]
+            premio = f"{emoji} {title}"
+        else:
+            premio = "—"
+        rows.append({
+            "Miembro": name,
+            "Premio": premio,
+            "Total": int(row["Total"]),
+            "KPD": float(row["KPD"]),
+            "Días activos": int(row["Días activos"]),
+            "Días 0": int(row["Días 0"]),
+            "Pico (día)": f"{int(row['Pico'])} ({row['Pico (día)']})"
+        })
 
-    st.markdown("### 📋 Tabla de premiación (ordenable)")
-    st.dataframe(table, hide_index=True, use_container_width=True)
+    awards_table = pd.DataFrame(rows).sort_values(["Total"], ascending=False)
 
-    st.markdown("### 🏆 Premios (uno por persona)")
-    chosen = st.selectbox("Ver ficha individual", table["Miembro"].tolist(), index=0)
+    st.markdown("### 📋 Tabla de premiación")
+    st.dataframe(awards_table, hide_index=True, use_container_width=True)
 
-    # Ficha destacada
+    st.markdown("### 🧾 Ficha individual")
+    chosen = st.selectbox("Elige participante", awards_table["Miembro"].tolist(), index=0)
+
     r = stats.set_index("Miembro").loc[chosen]
-    award_title, award_desc = awards_map.get(chosen, ("⭐ Participación Estelar", "Apareciste en el Wrapped."))
+
     a1, a2, a3, a4, a5 = st.columns(5)
     a1.metric("Total", int(r["Total"]))
     a2.metric("KPD", float(r["KPD"]))
@@ -399,40 +352,18 @@ with tabs[1]:
     a4.metric("Días 0", int(r["Días 0"]))
     a5.metric("Pico (día)", f"{int(r['Pico'])} ({r['Pico (día)']})")
 
-    st.success(f"**{award_title}** — {award_desc}")
+    if chosen in CUSTOM_AWARDS:
+        emoji, title, msg = CUSTOM_AWARDS[chosen]
+        st.success(f"**{emoji} {title}**")
+        st.info(msg)
+    else:
+        st.warning("Este participante aún no tiene mensaje personalizado en `CUSTOM_AWARDS`.")
 
-custom_msg = CUSTOM_MESSAGES.get(chosen)
-if custom_msg:
-    st.info(custom_msg)
-else:
-    st.info("✨ Mensaje personalizado pendiente: este personaje merece lore oficial.")
-
-
-    # Mini gráfico individual + lectura
+    # Mini gráfico individual
     s = series_for_person(members, day_cols, chosen)
     df_line = pd.DataFrame({"Día": s.index, "KGDs": s.values})
     fig = px.line(df_line, x="Día", y="KGDs", markers=True)
     st.plotly_chart(fig, use_container_width=True)
-
-    # Lectura breve automática del patrón individual
-    with st.expander("🧠 Lectura rápida del patrón (automática)", expanded=True):
-        total = int(r["Total"])
-        zeros = int(r["Días 0"])
-        active = int(r["Días activos"])
-        pico = int(r["Pico"])
-        pico_day = r["Pico (día)"]
-        msg = []
-        msg.append(f"En el mes sumaste **{total}** KGDs (KPD **{float(r['KPD']):.2f}**).")
-        msg.append(f"Tuviste **{active}** días activos y **{zeros}** días en cero.")
-        msg.append(f"Tu día más alto fue **{pico_day}** con **{pico}** KGDs.")
-        if zeros == 0:
-            msg.append("Patrón de presencia total: **0 días en blanco**. Constancia legendaria.")
-        elif zeros >= 10:
-            msg.append("Patrón **intermitente**: varios días en blanco; ideal para estrategia ‘aparezco cuando quiero’.")
-        if pico >= 7:
-            msg.append("Ese pico te pone en categoría **evento especial**: cuando se activa, se siente en la tabla.")
-        for m in msg:
-            st.markdown(f"- {m}")
 
 
 # =========================
@@ -654,6 +585,6 @@ with tabs[5]:
 
 
 st.caption(
-    "Nota: El dashboard detecta las columnas diarias y calcula totales/promedios desde ahí. "
-    "No usa columnas de 'Total de Cagadas' ni 'Cagadas diarias'."
+    "Nota: El dashboard detecta columnas diarias y calcula totales/promedios desde ahí. "
+    "No usa columnas tipo 'Total de Cagadas' ni 'Cagadas diarias'."
 )
